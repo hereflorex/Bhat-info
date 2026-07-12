@@ -3,15 +3,15 @@ import random
 import sqlite3
 from datetime import datetime, timedelta
 import aiohttp
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
 # ==================== CONFIG ====================
 BOT_TOKEN = "8841420440:AAGQ4fyG4JscIq7BTWpTMOxyRVeXsxUrqT4"
 OWNER_ID = 8622816165
 ADMIN_ID = 8341484113
 ADMIN_USERNAME = "@viru_113"
-BOT_USERNAME = "BHAT_MEGICAL_BOT"
+BOT_USERNAME = "@Bhatmagic_bot"
 
 # ==================== DATABASE ====================
 def init_db():
@@ -129,40 +129,100 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
     
     user = get_user(user_id)
-    msg = f"🤖 **BHAT MEGICAL BOT** ⚡\n\n👋 Welcome @{username}!\n💳 Credits: `{user[2]}`\n\n📌 /lookup - Search\n/balance - Credits\n/refer - Referral link\n/help - Help\n\n🔗 Code: `{user[3]}`"
-    await update.message.reply_text(msg, parse_mode='Markdown')
+    
+    keyboard = [
+        [InlineKeyboardButton("📱 Mobile", callback_data="mobile"),
+         InlineKeyboardButton("📧 Email", callback_data="email")],
+        [InlineKeyboardButton("🆔 Telegram", callback_data="telegram"),
+         InlineKeyboardButton("🪪 Aadhaar", callback_data="aadhaar")],
+        [InlineKeyboardButton("🏦 IFSC", callback_data="ifsc"),
+         InlineKeyboardButton("📊 GST", callback_data="gst")],
+        [InlineKeyboardButton("📍 Pincode", callback_data="pincode"),
+         InlineKeyboardButton("🌐 IP", callback_data="ip")],
+        [InlineKeyboardButton("🚗 Vehicle", callback_data="vehicle"),
+         InlineKeyboardButton("📞 Truecaller", callback_data="truecaller")],
+        [InlineKeyboardButton("🎮 FreeFire", callback_data="freefire")],
+        [InlineKeyboardButton("💰 Balance", callback_data="balance"),
+         InlineKeyboardButton("🔗 Refer", callback_data="refer")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    msg = f"🤖 *BHAT MEGICAL BOT* ⚡\n\n"
+    msg += f"👋 Welcome @{username}!\n"
+    msg += f"💳 Credits: `{user[2]}`\n"
+    msg += f"🔗 Code: `{user[3]}`\n\n"
+    msg += "📌 Select an option below:"
+    
+    await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=reply_markup)
 
-async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
     user = get_user(user_id)
     
     if not user:
-        await update.message.reply_text("❌ Use /start first!")
+        await query.edit_message_text("❌ Please use /start first!")
         return
     
+    data = query.data
+    
+    if data == "balance":
+        await show_balance(query, user)
+        return
+    
+    if data == "refer":
+        await show_refer(query, user)
+        return
+    
+    # Store the lookup type in context
+    context.user_data['lookup_type'] = data
+    await query.edit_message_text(
+        f"📝 *Enter the value for {data.upper()} lookup*\n\n"
+        f"Example:\n"
+        f"• Mobile: 9876543210\n"
+        f"• Email: example@gmail.com\n"
+        f"• Telegram: @username\n"
+        f"• Aadhaar: 123456789012\n"
+        f"• IFSC: SBIN0000001\n"
+        f"• GST: 19BOKPS7056D1ZI\n"
+        f"• Pincode: 110001\n"
+        f"• IP: 192.168.1.1\n"
+        f"• Vehicle: RJ18CF3690\n"
+        f"• FreeFire: 1234567890",
+        parse_mode='Markdown'
+    )
+    context.user_data['waiting_for_input'] = True
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.user_data.get('waiting_for_input'):
+        await update.message.reply_text("❌ Please use /start first!")
+        return
+    
+    user_id = update.effective_user.id
+    user = get_user(user_id)
+    lookup_type = context.user_data.get('lookup_type')
+    value = update.message.text.strip()
+    
+    if not lookup_type:
+        await update.message.reply_text("❌ Something went wrong. Use /start again!")
+        return
+    
+    # Check credits
     credits = user[2]
     plan_expiry = user[4]
     has_plan = plan_expiry and datetime.now() < datetime.fromisoformat(plan_expiry)
     
     if not has_plan and credits <= 0:
-        await update.message.reply_text(f"❌ No credits!\n🔗 Refer friends to earn\n📞 {ADMIN_USERNAME}")
-        return
-    
-    if not context.args or len(context.args) < 2:
-        await update.message.reply_text("🔍 Usage: /lookup <type> <value>\n\nTypes: telegram, mobile, email, aadhaar, ifsc, gst, pincode, ip, vehicle, truecaller, freefire")
-        return
-    
-    lookup_type = context.args[0].lower()
-    lookup_value = ' '.join(context.args[1:])
-    
-    if lookup_type not in APIS:
-        await update.message.reply_text("❌ Invalid type!")
+        await update.message.reply_text("❌ No credits left!\n🔗 Refer friends to earn more!")
+        context.user_data['waiting_for_input'] = False
         return
     
     if not has_plan:
         update_credits(user_id, credits - 1)
     
-    api_url = APIS[lookup_type](lookup_value)
+    api_url = APIS[lookup_type](value)
     loading = await update.message.reply_text("⏳ Fetching...")
     
     response = await fetch_api(api_url)
@@ -170,46 +230,78 @@ async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "❌" in response:
         await loading.edit_text(response)
     else:
-        result = f"🔍 **{lookup_type.upper()}**\n📝 `{lookup_value}`\n\n```\n{response[:3000]}\n```"
+        result = f"🔍 *{lookup_type.upper()} Lookup*\n"
+        result += f"📝 Value: `{value}`\n\n"
+        result += f"```\n{response[:3000]}\n```"
+        
         user = get_user(user_id)
         if user:
             if user[4] and datetime.now() < datetime.fromisoformat(user[4]):
-                result += "\n\n✅ Plan Active"
+                result += "\n\n✅ *Plan Active*"
             else:
-                result += f"\n\n💳 Remaining: `{user[2]}`"
+                result += f"\n\n💳 Remaining: `{user[2]}` credits"
+        
         await loading.edit_text(result, parse_mode='Markdown')
         log_action(user_id, f"lookup_{lookup_type}")
-
-async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    user = get_user(user_id)
-    if not user:
-        await update.message.reply_text("❌ Use /start first!")
-        return
     
-    msg = f"💳 **Balance**\n\n"
+    context.user_data['waiting_for_input'] = False
+
+async def show_balance(query, user):
+    msg = "💳 *Your Balance*\n\n"
     if user[4] and datetime.now() < datetime.fromisoformat(user[4]):
         msg += f"✅ Plan Active\n📅 Expires: `{user[4]}`"
     else:
         msg += f"💰 Credits: `{user[2]}`"
     msg += f"\n\n🔗 Code: `{user[3]}`"
-    await update.message.reply_text(msg, parse_mode='Markdown')
-
-async def refer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    user = get_user(user_id)
-    if not user:
-        await update.message.reply_text("❌ Use /start first!")
-        return
     
-    msg = f"🔗 **Referral Link**\n\n`https://t.me/{BOT_USERNAME}?start={user[3]}`\n\n📌 Friend gets 10 credits\n💰 You get 2 credits each"
-    await update.message.reply_text(msg, parse_mode='Markdown')
+    keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="back")]]
+    await query.edit_message_text(msg, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = "📚 **Commands**\n\n/lookup telegram <id>\n/lookup mobile <num>\n/lookup email <email>\n/lookup aadhaar <num>\n/lookup ifsc <code>\n/lookup gst <num>\n/lookup pincode <code>\n/lookup ip <addr>\n/lookup vehicle <num>\n/lookup truecaller <num>\n/lookup freefire <id>\n\n/balance - Credits\n/refer - Referral\n/start - Start\n\n📞 " + ADMIN_USERNAME
-    await update.message.reply_text(msg, parse_mode='Markdown')
+async def show_refer(query, user):
+    msg = f"🔗 *Your Referral Link*\n\n"
+    msg += f"`https://t.me/{BOT_USERNAME}?start={user[3]}`\n\n"
+    msg += "📌 *How it works:*\n"
+    msg += "• Friend gets 10 free credits\n"
+    msg += "• You get 2 credits each\n"
+    msg += "• Unlimited referrals!"
+    
+    keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="back")]]
+    await query.edit_message_text(msg, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
-# ==================== ADMIN ====================
+async def back_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    user = get_user(user_id)
+    username = query.from_user.username or "Unknown"
+    
+    keyboard = [
+        [InlineKeyboardButton("📱 Mobile", callback_data="mobile"),
+         InlineKeyboardButton("📧 Email", callback_data="email")],
+        [InlineKeyboardButton("🆔 Telegram", callback_data="telegram"),
+         InlineKeyboardButton("🪪 Aadhaar", callback_data="aadhaar")],
+        [InlineKeyboardButton("🏦 IFSC", callback_data="ifsc"),
+         InlineKeyboardButton("📊 GST", callback_data="gst")],
+        [InlineKeyboardButton("📍 Pincode", callback_data="pincode"),
+         InlineKeyboardButton("🌐 IP", callback_data="ip")],
+        [InlineKeyboardButton("🚗 Vehicle", callback_data="vehicle"),
+         InlineKeyboardButton("📞 Truecaller", callback_data="truecaller")],
+        [InlineKeyboardButton("🎮 FreeFire", callback_data="freefire")],
+        [InlineKeyboardButton("💰 Balance", callback_data="balance"),
+         InlineKeyboardButton("🔗 Refer", callback_data="refer")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    msg = f"🤖 *BHAT MEGICAL BOT* ⚡\n\n"
+    msg += f"👋 Welcome @{username}!\n"
+    msg += f"💳 Credits: `{user[2]}`\n"
+    msg += f"🔗 Code: `{user[3]}`\n\n"
+    msg += "📌 Select an option below:"
+    
+    await query.edit_message_text(msg, parse_mode='Markdown', reply_markup=reply_markup)
+
+# ==================== ADMIN COMMANDS ====================
 async def admin_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in [OWNER_ID, ADMIN_ID]:
@@ -264,7 +356,7 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     credits = c.fetchone()[0] or 0
     conn.close()
     
-    await update.message.reply_text(f"📊 **Stats**\n\n👥 Users: `{users}`\n🔗 Referrals: `{refs}`\n💳 Credits: `{credits}`", parse_mode='Markdown')
+    await update.message.reply_text(f"📊 *Stats*\n\n👥 Users: `{users}`\n🔗 Referrals: `{refs}`\n💳 Credits: `{credits}`", parse_mode='Markdown')
 
 async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -303,14 +395,18 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
     print("✅ App built")
     
+    # Commands
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("lookup", lookup))
-    app.add_handler(CommandHandler("balance", balance))
-    app.add_handler(CommandHandler("refer", refer))
-    app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("plan", admin_plan))
     app.add_handler(CommandHandler("stats", admin_stats))
     app.add_handler(CommandHandler("broadcast", admin_broadcast))
+    
+    # Callbacks
+    app.add_handler(CallbackQueryHandler(button_handler, pattern="^(mobile|email|telegram|aadhaar|ifsc|gst|pincode|ip|vehicle|truecaller|freefire|balance|refer)$"))
+    app.add_handler(CallbackQueryHandler(back_handler, pattern="^back$"))
+    
+    # Messages
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     print("✅ All handlers added")
     print("🤖 Bot is running!")
