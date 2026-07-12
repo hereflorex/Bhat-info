@@ -16,7 +16,7 @@ BOT_USERNAME = "@Bhatmagic_bot"
 # Force Channel Config
 FORCE_CHANNEL = "@cardinghouss"
 FORCE_CHANNEL_ID = -1001234567890  # Replace with your channel ID (get from @getidsbot)
-FORCE_CHANNEL_LINK = "https://t.me/cardinghouss"
+FORCE_CHANNEL_LINK = "@cardinghouss"
 
 # Admin list
 ADMINS = [OWNER_ID, ADMIN_ID]
