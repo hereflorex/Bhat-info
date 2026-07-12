@@ -13,12 +13,7 @@ ADMIN_ID = 8341484113
 ADMIN_USERNAME = "@viru_113"
 BOT_USERNAME = "@Bhatmagic_bot"
 
-# Force Channel Config
-FORCE_CHANNEL = "@cardinghouss"
-FORCE_CHANNEL_ID = -1001234567890  # Replace with your channel ID (get from @getidsbot)
-FORCE_CHANNEL_LINK = "@cardinghouss"
-
-# Admin list
+# Admin list (owners + admins)
 ADMINS = [OWNER_ID, ADMIN_ID]
 
 # ==================== DATABASE ====================
@@ -34,7 +29,6 @@ def init_db():
         is_admin INTEGER DEFAULT 0,
         is_banned INTEGER DEFAULT 0,
         ban_reason TEXT,
-        joined_channel INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
     c.execute('''CREATE TABLE IF NOT EXISTS referrals (
@@ -83,13 +77,6 @@ def update_credits(user_id, credits):
     conn.commit()
     conn.close()
 
-def update_channel_join(user_id):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute("UPDATE users SET joined_channel=1 WHERE user_id=?", (user_id,))
-    conn.commit()
-    conn.close()
-
 def log_action(user_id, action):
     conn = sqlite3.connect('users.db')
     c = conn.cursor()
@@ -122,35 +109,6 @@ def unban_user(user_id):
     c.execute("UPDATE users SET is_banned=0, ban_reason=NULL WHERE user_id=?", (user_id,))
     conn.commit()
     conn.close()
-
-# ==================== CHECK JOIN ====================
-async def check_join(user_id, context):
-    """Check if user has joined the channel"""
-    try:
-        member = await context.bot.get_chat_member(FORCE_CHANNEL_ID, user_id)
-        if member.status in ['member', 'administrator', 'creator']:
-            update_channel_join(user_id)
-            return True
-        return False
-    except:
-        return False
-
-async def force_join_message(update, context):
-    """Send force join message"""
-    keyboard = [
-        [InlineKeyboardButton("📢 Join Channel", url=FORCE_CHANNEL_LINK)],
-        [InlineKeyboardButton("✅ I've Joined", callback_data="check_join")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    msg = (
-        f"🔐 *Channel Required*\n\n"
-        f"Please join our channel to use this bot!\n\n"
-        f"👉 {FORCE_CHANNEL}\n\n"
-        f"After joining, click the button below."
-    )
-    
-    await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=reply_markup)
 
 # ==================== API ====================
 async def fetch_api(url):
@@ -218,17 +176,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # Check if user joined channel (skip for admins)
-    if user_id not in ADMINS:
-        user = get_user(user_id)
-        if not user or user[7] == 0:
-            joined = await check_join(user_id, context)
-            if not joined:
-                await force_join_message(update, context)
-                return
-            else:
-                update_channel_join(user_id)
-    
     user = get_user(user_id)
     
     if context.args and not user:
@@ -268,40 +215,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=get_main_keyboard(user_id))
 
-async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    
-    # Check if user joined
-    joined = await check_join(user_id, context)
-    
-    if joined:
-        update_channel_join(user_id)
-        user = get_user(user_id)
-        username = query.from_user.username or "Unknown"
-        
-        msg = f"🤖 *BHAT MEGICAL BOT* ⚡\n\n"
-        msg += f"👋 Welcome @{username}!\n"
-        msg += f"💳 Credits: `{user[2]}`\n"
-        msg += f"🔗 Code: `{user[3]}`\n\n"
-        msg += "📌 Select an option below:"
-        
-        await query.edit_message_text(msg, parse_mode='Markdown', reply_markup=get_main_keyboard(user_id))
-    else:
-        keyboard = [
-            [InlineKeyboardButton("📢 Join Channel", url=FORCE_CHANNEL_LINK)],
-            [InlineKeyboardButton("✅ I've Joined", callback_data="check_join")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.edit_message_text(
-            f"❌ You haven't joined yet!\n\n"
-            f"Please join {FORCE_CHANNEL} first.",
-            reply_markup=reply_markup
-        )
-
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -312,25 +225,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_banned(user_id):
         await query.edit_message_text("🚫 You are banned! Contact admin.")
         return
-    
-    # Check channel join for non-admins
-    if user_id not in ADMINS:
-        user = get_user(user_id)
-        if not user or user[7] == 0:
-            joined = await check_join(user_id, context)
-            if not joined:
-                keyboard = [
-                    [InlineKeyboardButton("📢 Join Channel", url=FORCE_CHANNEL_LINK)],
-                    [InlineKeyboardButton("✅ I've Joined", callback_data="check_join")]
-                ]
-                await query.edit_message_text(
-                    f"🔐 *Channel Required*\n\nPlease join {FORCE_CHANNEL} first!",
-                    parse_mode='Markdown',
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-                return
-            else:
-                update_channel_join(user_id)
     
     user = get_user(user_id)
     
@@ -383,17 +277,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_banned(user_id):
         await update.message.reply_text("🚫 You are banned! Contact admin.")
         return
-    
-    # Check channel join for non-admins
-    if user_id not in ADMINS:
-        user = get_user(user_id)
-        if not user or user[7] == 0:
-            joined = await check_join(user_id, context)
-            if not joined:
-                await force_join_message(update, context)
-                return
-            else:
-                update_channel_join(user_id)
     
     if not context.user_data.get('waiting_for_input'):
         await update.message.reply_text("❌ Please use /start first!")
@@ -539,16 +422,21 @@ async def admin_panel_handlers(query, context):
             parse_mode='Markdown'
         )
     elif data == "admin_ban":
+        context.user_data['admin_action'] = 'ban'
         await query.edit_message_text(
             "🚫 *Ban User*\n\n"
             "Send: /ban @username reason\n"
-            "Example: /ban @viru_113 Spamming",
+            "Example: /ban @viru_113 Spamming\n\n"
+            "Or send: /ban user_id reason",
             parse_mode='Markdown'
         )
     elif data == "admin_unban":
+        context.user_data['admin_action'] = 'unban'
         await query.edit_message_text(
             "✅ *Unban User*\n\n"
-            "Send: /unban @username",
+            "Send: /unban @username\n"
+            "Example: /unban @viru_113\n\n"
+            "Or send: /unban user_id",
             parse_mode='Markdown'
         )
     elif data == "admin_banned":
@@ -563,17 +451,16 @@ async def show_admin_users(query):
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM users")
     total = c.fetchone()[0]
-    c.execute("SELECT user_id, username, credits, plan_expiry, is_banned, joined_channel FROM users ORDER BY created_at DESC LIMIT 10")
+    c.execute("SELECT user_id, username, credits, plan_expiry, is_banned FROM users ORDER BY created_at DESC LIMIT 10")
     users = c.fetchall()
     conn.close()
     
     msg = f"👥 *Recent Users* (10)\n\n"
     for user in users:
-        uid, name, credits, plan, banned, joined = user
+        uid, name, credits, plan, banned = user
         plan_status = "✅ Plan" if plan and datetime.now() < datetime.fromisoformat(plan) else "💳 Free"
         status = "🚫 Banned" if banned else "✅ Active"
-        channel = "📢 Joined" if joined else "❌ Not Joined"
-        msg += f"• @{name or uid} | Credits: {credits} | {plan_status} | {status} | {channel}\n"
+        msg += f"• @{name or uid} | Credits: {credits} | {plan_status} | {status}\n"
     
     msg += f"\n📊 Total Users: {total}"
     
@@ -593,8 +480,6 @@ async def show_admin_stats(query):
     plans = c.fetchone()[0]
     c.execute("SELECT COUNT(*) FROM users WHERE is_banned=1")
     banned = c.fetchone()[0]
-    c.execute("SELECT COUNT(*) FROM users WHERE joined_channel=1")
-    joined = c.fetchone()[0]
     c.execute("SELECT COUNT(*) FROM logs WHERE date(timestamp) = date('now')")
     today = c.fetchone()[0]
     conn.close()
@@ -603,9 +488,8 @@ async def show_admin_stats(query):
     msg += f"👥 Users: `{users}`\n"
     msg += f"🔗 Referrals: `{refs}`\n"
     msg += f"💳 Credits: `{credits}`\n"
-    msg += f"✅ Plans: `{plans}`\n"
+    msg += f"✅ Active Plans: `{plans}`\n"
     msg += f"🚫 Banned: `{banned}`\n"
-    msg += f"📢 Joined Channel: `{joined}`\n"
     msg += f"⚡ Today: `{today}` actions"
     
     keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]
@@ -675,7 +559,8 @@ async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "🚫 *Ban User*\n\n"
             "Usage: /ban @username reason\n"
-            "Example: /ban @viru_113 Spamming",
+            "Example: /ban @viru_113 Spamming\n\n"
+            "Or: /ban user_id reason",
             parse_mode='Markdown'
         )
         return
@@ -702,11 +587,13 @@ async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn.close()
             return
     
+    # Don't allow banning admins
     if target_id in ADMINS:
         await update.message.reply_text("❌ Cannot ban an admin!")
         conn.close()
         return
     
+    # Check if already banned
     c.execute("SELECT is_banned FROM users WHERE user_id=?", (target_id,))
     result = c.fetchone()
     if result and result[0] == 1:
@@ -720,11 +607,13 @@ async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"✅ *User Banned!*\n\n"
         f"👤 User: `{target_id}`\n"
-        f"📝 Reason: {reason}",
+        f"📝 Reason: {reason}\n"
+        f"👮 Banned by: {update.effective_user.username or user_id}",
         parse_mode='Markdown'
     )
     log_action(user_id, f"banned_{target_id}")
     
+    # Notify user
     try:
         await context.bot.send_message(
             target_id,
@@ -746,7 +635,9 @@ async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 1:
         await update.message.reply_text(
             "✅ *Unban User*\n\n"
-            "Usage: /unban @username",
+            "Usage: /unban @username\n"
+            "Example: /unban @viru_113\n\n"
+            "Or: /unban user_id",
             parse_mode='Markdown'
         )
         return
@@ -772,6 +663,7 @@ async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn.close()
             return
     
+    # Check if not banned
     c.execute("SELECT is_banned FROM users WHERE user_id=?", (target_id,))
     result = c.fetchone()
     if not result or result[0] == 0:
@@ -784,7 +676,8 @@ async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(
         f"✅ *User Unbanned!*\n\n"
-        f"👤 User: `{target_id}`",
+        f"👤 User: `{target_id}`\n"
+        f"👮 Unbanned by: {update.effective_user.username or user_id}",
         parse_mode='Markdown'
     )
     log_action(user_id, f"unbanned_{target_id}")
@@ -931,7 +824,6 @@ def main():
     app.add_handler(CommandHandler("unban", unban_command))
     
     # Callbacks
-    app.add_handler(CallbackQueryHandler(check_join_callback, pattern="^check_join$"))
     app.add_handler(CallbackQueryHandler(button_handler, pattern="^(mobile|email|telegram|aadhaar|ifsc|gst|pincode|ip|vehicle|truecaller|freefire|balance|refer|admin_panel|back)$"))
     app.add_handler(CallbackQueryHandler(admin_panel_handlers, pattern="^admin_"))
     
