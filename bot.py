@@ -15,7 +15,7 @@ BOT_USERNAME = "@Bhatmagic_bot"
 
 # Force Channel Configuration
 FORCE_CHANNEL = "@cardinghouss"
-FORCE_CHANNEL_ID = --1003552161874
+FORCE_CHANNEL_ID = ---1003552161874
 FORCE_CHANNEL_LINK = "https://t.me/cardinghouss"
 
 # Admins list
